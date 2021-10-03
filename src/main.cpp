@@ -343,7 +343,6 @@ void try_parse_shp_prj(CString _inputStrConfig, SHPConfigPrj& data)
 int main()
 {
     SHPConfigPrj parsed_data;
-    //- если секция имеет вид UNIT3[\"Kilometer\",], то секции будет задан флаг простой
     //- все численные представления парсятся как double
     //- строка конфига должна быть без пробелов, иначе какие-то значения могут считаться неверно
 
