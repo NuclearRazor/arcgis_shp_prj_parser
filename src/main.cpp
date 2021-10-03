@@ -7,6 +7,12 @@
 #include <windows.h>
 #include <atlstr.h>
 
+const static char COMMA_DELIM = ',';
+const static char START_SECTION_DELIM = '[';
+const static char END_SECTION_DELIM = ']';
+const static char DOUBLE_QUOTE_DELIM = '\"';
+const static char DOT_DELIM = '.';
+
 struct sectionValues
 {
     std::string section_name;
@@ -26,27 +32,53 @@ struct SHPConfigPrj
     std::vector<std::pair<std::string, sectionValues>> data;
     std::string initial_config;
 
-    void update_section_value_by_section_name()
+    // обновляет значение для переданной секции
+    void update_section_value_by_section_name(const std::string& section_name, const std::string& val_for_replace)
     {
+        std::string value_to_replace;
+        for (std::pair<std::string, sectionValues>& section_info : data)
+        {
+            if (section_info.second.section_name == section_name)
+            {
+                value_to_replace = section_info.second.section_value;
+                section_info.second.section_value = val_for_replace;
+                break;
+            }
+        }
 
+        const size_t section_pos = initial_config.find(value_to_replace);
+        const size_t section_value_to_replace_pos = initial_config.find(value_to_replace);
+
+        if (section_value_to_replace_pos != std::string::npos)
+            initial_config.replace(section_pos, value_to_replace.length(), val_for_replace);
     }
 
-    void update_values_by_section_name()
+    // обновляет список значений секции
+    void update_values_by_section_name(const std::string& section_name, const std::vector<double>& values)
     {
-
+        //TODO
     }
 
-    void update_section_value_by_section_name_and_idx()
+    // обновляет конкретное значение из списка значений секции по переданному индексу
+    void update_section_values_by_section_name_and_idx(const std::string& section_name, const std::string& val_for_replace)
     {
 
+        for (std::pair<std::string, sectionValues>& section_info : data)
+        {
+            if (section_info.second.section_name == section_name)
+            {
+                section_info.second.section_value = val_for_replace;
+                break;
+            }
+        }
+
+        size_t section_pos = initial_config.find(section_name);
+
+        //TODO
+        // проверить выходит ли индекс за пределы списка
+        // считать значения, запомнить индексы, заменить
     }
 };
-
-const static char COMMA_DELIM = ',';
-const static char START_SECTION_DELIM = '[';
-const static char END_SECTION_DELIM = ']';
-const static char DOUBLE_QUOTE_DELIM = '\"';
-const static char DOT_DELIM = '.';
 
 // проверка на то, что начало из начала строки можно считать значение секции
 inline bool is_starting_section_value(const std::string& actual_substr)
@@ -78,8 +110,7 @@ inline void parse_values(const std::string& section_values, std::vector<double>&
                     {
                         if (_double_str_reps[0] != ',')
                             break;
-
-                        if (_double_str_reps[0] == ',')
+                        else if(_double_str_reps[0] == ',')
                             _double_str_reps.erase(0, 1);
                      }
                 }
