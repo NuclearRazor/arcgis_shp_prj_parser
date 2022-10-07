@@ -17,29 +17,7 @@ const static char DOT_DELIM = '.';
 
 const static long PRECISION_DOUBLE_REPR = 15;
 
-// убирает разделители в начале строки
-inline bool trim_delimeter_on_start(std::string& double_str_reps)
-{
-    try
-    {
-        if (double_str_reps[0] == COMMA_DELIM)
-        {
-            for (size_t k = 0; k < double_str_reps.size(); k++)
-            {
-                if (double_str_reps[0] != COMMA_DELIM)
-                    break;
-                else if (double_str_reps[0] == COMMA_DELIM)
-                    double_str_reps.erase(0, 1);
-            }
-        }
-    }
-    catch(...)
-    {
-        return false;
-    }
-
-    return true;
-}
+inline bool trim_delimeter_on_start(std::string& double_str_reps);
 
 struct sectionValues
 {
@@ -60,7 +38,7 @@ struct SHPConfigPrj
     std::vector<std::pair<std::string, sectionValues>> data;
     std::string initial_config;
 
-    // обновляет значение для переданной секции
+    // updates the value for the passed section
     bool update_section_value_by_section_name(const std::string& section_name, const std::string& val_for_replace)
     {
         bool is_success = false;
@@ -98,7 +76,6 @@ struct SHPConfigPrj
         return is_success;
     }
 
-    // считывает индексы подстрок
     void parse_all_value_entries(std::vector<size_t>& vec, std::string data, std::string toSearch)
     {
         size_t pos = data.find(toSearch);
@@ -109,11 +86,11 @@ struct SHPConfigPrj
         }
     }
 
-    // в методе происходит замена значений списка параметров исходной секции на переданный
     bool replace_section_value_by_index(const std::string& _double_str_reps, const std::vector<double>& values, const size_t idx)
     {
         bool is_success = false;
-        // если строка не преобразуется - создастся исключение, и подстрока будет пропущена и last_delim_pos обновится
+
+        // if the string is not converted - an exception will be thrown and the substring will be skipped and last_delim_pos will be updated
         const double parsed_test_double = std::stod(_double_str_reps);
 
         std::ostringstream ss_double_repr;
@@ -122,9 +99,10 @@ struct SHPConfigPrj
         std::string value_to_replace = ss_double_repr.str();
 
         std::vector<size_t> substr_indexes;
-        // де факто - проверка на уникальность вхождения, 
-        // могут быть случаи когда новое значение для записи - есть как подстрока одного из списка значений секции
-        // первое значение всегда ищется в исходной строке, далее уже в обновленной
+
+        // de facto - check for uniqueness of the entry,
+        // there may be cases when the new value to write is as a substring of one of the list of section values
+        // the first value is always searched in the original string, then in the updated one
         parse_all_value_entries(substr_indexes, initial_config, _double_str_reps);
 
         size_t start_pos_to_replace = 0;
@@ -146,9 +124,9 @@ struct SHPConfigPrj
         return is_success;
     }
 
-    // обновляет список значений секции, секция должна быть уникальной без дубликатов
-    // если секций несколько, то значение будет заменено для первой
-    // размерность переданного вектора значений и текущее количество значений секции должна быть одинаковой
+    // updates the list of section values, the section must be unique without duplicates
+    // if there are several sections, then the value will be replaced for the first one
+    // the dimension of the passed value vector and the current number of section values must be the same
     bool update_values_by_section_name(const std::string& section_name, const std::vector<double>& values)
     {
         bool is_success = false;
@@ -172,7 +150,7 @@ struct SHPConfigPrj
             }
         }
 
-        if(section_values.size() != values.size())
+        if (section_values.size() != values.size())
             return is_success;
 
         section_values.clear();
@@ -185,11 +163,11 @@ struct SHPConfigPrj
         if (section_values_end_pos == std::string::npos || start_slice_idx == std::string::npos || slice_chars_count == 0)
             return is_success;
 
-        // формируем список значений с разделителем ',' в виде строки
+        // form a list of values with a separator ',' as a string
         std::string initial_bind_str = initial_config.substr(start_slice_idx, slice_chars_count);
         initial_bind_str += ',';
 
-        // для подстроки (значения) в текущем конфиге, ищем индексы и заменяем текущий срез для последнего найденного индекса искомой подстроки 
+        // for a substring (value) in the current config, we look for indices and replace the current slice for the last found index of the substring we are looking for
         size_t values_replaced_count = 0;
         size_t last_delim_pos = 0;
         for (size_t l = 0; l < initial_bind_str.size(); l++)
@@ -220,8 +198,8 @@ struct SHPConfigPrj
         return is_success;
     }
 
-    // обновляет конкретное значение из списка значений секции по переданному индексу
-    // индекс должен начинаться с 0
+    // updates a specific value from the list of section values at the passed index
+    // index must start from 0
     bool update_section_value_by_index(const std::string& section_name, const double& value, const size_t index)
     {
         bool is_success = false;
@@ -257,11 +235,11 @@ struct SHPConfigPrj
         if (section_values_end_pos == std::string::npos || start_slice_idx == std::string::npos || slice_chars_count == 0)
             return is_success;
 
-        // формируем список значений с разделителем ',' в виде строки
+        // form a list of values with a separator ',' as a string
         std::string initial_bind_str = initial_config.substr(start_slice_idx, slice_chars_count);
         initial_bind_str += ',';
 
-        // для подстроки (значения) в текущем конфиге, ищем индексы и заменяем текущий срез для последнего найденного индекса искомой подстроки 
+        // for a substring (value) in the current config, look for indices and replace the current slice for the last found index of the desired substring
         size_t values_replaced_count = 0;
         size_t last_delim_pos = 0;
 
@@ -300,7 +278,31 @@ struct SHPConfigPrj
     }
 };
 
-// проверка на то, что начало из начала строки можно считать значение секции
+// remove delimeters from the start of string
+inline bool trim_delimeter_on_start(std::string& double_str_reps)
+{
+    try
+    {
+        if (double_str_reps[0] == COMMA_DELIM)
+        {
+            for (size_t k = 0; k < double_str_reps.size(); k++)
+            {
+                if (double_str_reps[0] != COMMA_DELIM)
+                    break;
+                else if (double_str_reps[0] == COMMA_DELIM)
+                    double_str_reps.erase(0, 1);
+            }
+        }
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+// check that the beginning is from the beginning of the section
 inline bool is_starting_section_value(const std::string& actual_substr)
 {
     if (actual_substr.size() == 0)
@@ -309,10 +311,10 @@ inline bool is_starting_section_value(const std::string& actual_substr)
     const size_t sequence_delim_pos = actual_substr.find(',');
     const size_t sequence_start_section_pos = actual_substr.find('[');
 
-    return sequence_delim_pos < sequence_start_section_pos&& sequence_delim_pos != std::string::npos && sequence_start_section_pos != std::string::npos;
+    return sequence_delim_pos < sequence_start_section_pos && sequence_delim_pos != std::string::npos && sequence_start_section_pos != std::string::npos;
 }
 
-// заполнение значений секции
+// fill section with values
 inline void parse_values(const std::string& section_values, std::vector<double>& values)
 {
     size_t last_delim_pos = 0;
@@ -343,7 +345,7 @@ inline void parse_values(const std::string& section_values, std::vector<double>&
     }
 }
 
-// проверка на наличие списка значений в строке до конца секции
+// checking for the list of values in a string until the end of the section
 inline bool is_can_parse_values(const std::string& actual_substr)
 {
     if (actual_substr.size() == 0)
@@ -378,7 +380,7 @@ inline bool is_can_parse_values(const std::string& actual_substr)
     return values.size() > 0 && !is_first_literal_delim && is_first_literal_number_or_sign;
 }
 
-// проверка на наличие в строке не символьных литералов / разделителей
+// check if string contains delimiters or non - symbols
 bool is_string_without_delimeters(const std::string& actual_substr)
 {
     if (actual_substr.size() == 0)
@@ -388,9 +390,9 @@ bool is_string_without_delimeters(const std::string& actual_substr)
 
     for (size_t k = 0; k < actual_substr.size(); k++)
     {
-        if (actual_substr[k] == COMMA_DELIM 
-            || actual_substr[k] == START_SECTION_DELIM 
-            || actual_substr[k] == END_SECTION_DELIM 
+        if (actual_substr[k] == COMMA_DELIM
+            || actual_substr[k] == START_SECTION_DELIM
+            || actual_substr[k] == END_SECTION_DELIM
             || actual_substr[k] == DOUBLE_QUOTE_DELIM
             || actual_substr[k] == DOT_DELIM)
             return is_success;
@@ -400,7 +402,7 @@ bool is_string_without_delimeters(const std::string& actual_substr)
     return is_success;
 }
 
-// считываем список значений для секции
+// read the list of values for the section
 void try_parse_values_from_section(const std::string& actual_substr, std::pair<std::string, sectionValues>& data)
 {
     if (actual_substr.size() == 0)
@@ -415,12 +417,13 @@ void try_parse_values_from_section(const std::string& actual_substr, std::pair<s
     parse_values(section_values, values);
 
     if (values.size() != 0 && data.second.section_values.size() == 0)
-            data.second.section_values = values;
+        data.second.section_values = values;
 }
 
-// считываем значение строки после начала секции для трех случаев
-// когда секция простая, вида: PARAMETER[\"NO_PROJECTION\"]
-// когда секция сложная (со значениями) или сложная и вложенная: PRIMEM[\"Greenwich\",0.0], DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]]
+// read the string value after the beginning of the section for the next three cases:
+// when the section is simple, like: PARAMETER[\"NO_PROJECTION\"]
+// when section is complex (with values) 
+// and when section is complex and nested: PRIMEM[\"Greenwich\",0.0], DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]]
 void try_parse_section_value(const std::string& actual_substr, std::pair<std::string, sectionValues>& data)
 {
     if (actual_substr.size() == 0)
@@ -444,7 +447,7 @@ void try_parse_section_value(const std::string& actual_substr, std::pair<std::st
     }
     else if (is_value_complex_or_complex_nested)
     {
-        if(data.second.section_value.size() == 0)
+        if (data.second.section_value.size() == 0)
             data.second.section_value = value_complex_or_complex_nested;
     }
     else if (!is_value_complex_or_complex_nested && is_value_simple)
@@ -454,7 +457,6 @@ void try_parse_section_value(const std::string& actual_substr, std::pair<std::st
     }
 }
 
-// обрезаем кусок строки конфига до начала следующей секции
 bool trim_shp_config_before_section(std::string& actual_substr)
 {
     if (actual_substr.size() == 0)
@@ -476,7 +478,6 @@ bool trim_shp_config_before_section(std::string& actual_substr)
     return is_success;
 }
 
-// считываем конец строки конфига шейпа
 void try_parse_tail(std::string& actual_substr, std::vector<std::pair<std::string, sectionValues>>& sections_data)
 {
     if (actual_substr.size() == 0 || sections_data.size() == 0)
@@ -485,9 +486,9 @@ void try_parse_tail(std::string& actual_substr, std::vector<std::pair<std::strin
     std::string tail_substring = actual_substr;
     size_t pos = 0;
 
-    //"Lambert_Conformal_Conic"]] -> нет запятых -> простая секция
-    //"Greenwich",0.0]] -> есть одна запятая, сложная секция
-    //"WGS_1984",6378137.000000,298.257224]]] -> больше одной запятых -> сложная секция со значениями
+    //"Lambert_Conformal_Conic"]] -> no delimiters -> simple section
+    //"Greenwich",0.0]] -> one delimiters -> complex section
+    //"WGS_1984",6378137.000000,298.257224]]] -> more than one delimiter -> complex section with values
 
     long delimeters_count = 0;
     for (size_t t = 0; t < tail_substring.size(); t++)
@@ -512,7 +513,7 @@ void try_parse_tail(std::string& actual_substr, std::vector<std::pair<std::strin
     }
 }
 
-//задаем тип секции по наличию у нее значений
+// set the type of the section by the presence of values in it
 void set_sections_type(std::vector<std::pair<std::string, sectionValues>>& sections_data)
 {
     if (sections_data.size() == 0)
@@ -526,14 +527,13 @@ void set_sections_type(std::vector<std::pair<std::string, sectionValues>>& secti
             section_packed_data.second.is_simple_or_nested = false;
     }
 
-    // первая секция уникальная - корневая, но несмотря на ее вложенность, напрямую списка значений она не содержит
+    // the first section is unique - the root, but despite its nesting, it does not directly contain a list of values
 }
 
 void try_parse_shp_prj(CString _inputStrConfig, SHPConfigPrj& data)
 {
-    // преобразование из TCHAR в LPCSTR
     CT2CA pszConvertedAnsiString(_inputStrConfig);
-    // используем конструктов строки для типа LPCSTR
+
     std::string inputStrConfig(pszConvertedAnsiString);
 
     size_t pos = 0;
@@ -541,7 +541,6 @@ void try_parse_shp_prj(CString _inputStrConfig, SHPConfigPrj& data)
     std::string actual_substr;
     std::vector<std::pair<std::string, sectionValues>> sections_data;
 
-    // инициализация значения initial_config исходным конфигом шейпа
     data.initial_config = inputStrConfig;
 
     std::pair<std::string, sectionValues> section_data;
@@ -587,13 +586,13 @@ void try_parse_shp_prj(CString _inputStrConfig, SHPConfigPrj& data)
 int main()
 {
     SHPConfigPrj parsed_data;
-	
-    //типы данных arcgis и точность
+
+    //ArcGIS data types and accuracy
     //https://pro.arcgis.com/ru/pro-app/latest/help/data/geodatabases/overview/arcgis-field-data-types.htm
 
-    //- если секция имеет вид UNIT3[\"Kilometer\",], то секции будет задан флаг простой
-    //- все численные представления парсятся как double
-    //- строка конфига должна быть без пробелов, иначе какие-то значения могут считаться неверно
+    //- if the section has the form UNIT3[\"Kilometer\",], then the simple flag will be set for the section
+    //- all numerical representations are parsed as double
+    //- the config line must be without spaces, otherwise some values may be considered incorrect
 
     //CString testStr = "GEOGCS[\"GCS_WGS_1984\",PRIMEM[\"Greenwich\",0.0]]";
     //CString testStr = "GEOGCS[\"GCS_WGS_1984\",UNIT[\"T\",10.0],PARAMETER[\"False_Easting\",500000.0]]";
@@ -628,6 +627,5 @@ int main()
     //parsed_data.update_values_by_section_name("PRIMEM", values_for_test);
 
     parsed_data.update_section_value_by_index("SPHEROID", -0.1234222, 1);
-
     return 0;
 }
