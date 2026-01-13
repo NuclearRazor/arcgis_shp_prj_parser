@@ -1,631 +1,540 @@
-#include <string>
-#include <vector>
-#include <iterator> 
-#include <algorithm>
-
-#include <sstream>
-
+#include "wkt_parser.hpp"
 #include <iostream>
-#include <windows.h>
-#include <atlstr.h>
+#include <cassert>
+#include <cmath>
 
-const static char COMMA_DELIM = ',';
-const static char START_SECTION_DELIM = '[';
-const static char END_SECTION_DELIM = ']';
-const static char DOUBLE_QUOTE_DELIM = '\"';
-const static char DOT_DELIM = '.';
+using namespace wkt;
 
-const static long PRECISION_DOUBLE_REPR = 15;
+// ============================================================================
+// test utilities
+// ============================================================================
 
-inline bool trim_delimeter_on_start(std::string& double_str_reps);
+#define TEST(name) void test_##name()
+#define RUN_TEST(name) do { \
+    std::cout << "Running " #name "... "; \
+    try { test_##name(); std::cout << "OK\n"; } \
+    catch (const std::exception& e) { std::cout << "FAILED: " << e.what() << "\n"; failures++; } \
+} while(0)
 
-struct sectionValues
-{
-    std::string section_name;
-    std::string section_value;
+// ============================================================================
+// lexer tests
+// ============================================================================
 
-    bool is_simple_or_nested;
-    std::vector<double> section_values;
-
-    sectionValues()
-    {
-        is_simple_or_nested = false;
-    }
-};
-
-struct SHPConfigPrj
-{
-    std::vector<std::pair<std::string, sectionValues>> data;
-    std::string initial_config;
-
-    // updates the value for the passed section
-    bool update_section_value_by_section_name(const std::string& section_name, const std::string& val_for_replace)
-    {
-        bool is_success = false;
-
-        if (section_name.size() == 0 || val_for_replace.size() == 0)
-            return is_success;
-
-        const std::size_t section_name_idx = initial_config.find(section_name);
-        if (section_name_idx == std::string::npos)
-            return is_success;
-
-        std::string value_to_replace;
-        for (std::pair<std::string, sectionValues>& section_info : data)
-        {
-            if (section_info.second.section_name == section_name)
-            {
-                value_to_replace = section_info.second.section_value;
-                section_info.second.section_value = val_for_replace;
-                break;
-            }
-        }
-
-        if (value_to_replace.size() == 0)
-            return is_success;
-
-        const size_t section_pos = initial_config.find(value_to_replace);
-        const size_t section_value_to_replace_pos = initial_config.find(value_to_replace);
-
-        if (section_value_to_replace_pos != std::string::npos)
-        {
-            is_success = true;
-            initial_config.replace(section_pos, value_to_replace.length(), val_for_replace);
-        }
-
-        return is_success;
-    }
-
-    void parse_all_value_entries(std::vector<size_t>& vec, std::string data, std::string toSearch)
-    {
-        size_t pos = data.find(toSearch);
-        while (pos != std::string::npos)
-        {
-            vec.push_back(pos);
-            pos = data.find(toSearch, pos + toSearch.size());
-        }
-    }
-
-    bool replace_section_value_by_index(const std::string& _double_str_reps, const std::vector<double>& values, const size_t idx)
-    {
-        bool is_success = false;
-
-        // if the string is not converted - an exception will be thrown and the substring will be skipped and last_delim_pos will be updated
-        const double parsed_test_double = std::stod(_double_str_reps);
-
-        std::ostringstream ss_double_repr;
-        ss_double_repr.precision(PRECISION_DOUBLE_REPR);
-        ss_double_repr << values[idx];
-        std::string value_to_replace = ss_double_repr.str();
-
-        std::vector<size_t> substr_indexes;
-
-        // de facto - check for uniqueness of the entry,
-        // there may be cases when the new value to write is as a substring of one of the list of section values
-        // the first value is always searched in the original string, then in the updated one
-        parse_all_value_entries(substr_indexes, initial_config, _double_str_reps);
-
-        size_t start_pos_to_replace = 0;
-        if (values.size() == 1 && substr_indexes.size() >= 1)
-            start_pos_to_replace = substr_indexes[0];
-        else
-            start_pos_to_replace = substr_indexes.back();
-
-        const size_t section_pos = initial_config.find(_double_str_reps);
-
-        if (section_pos != std::string::npos)
-            initial_config.erase(start_pos_to_replace, _double_str_reps.length());
-        else
-            return is_success;
-
-        initial_config.insert(start_pos_to_replace, value_to_replace);
-
-        is_success = true;
-        return is_success;
-    }
-
-    // updates the list of section values, the section must be unique without duplicates
-    // if there are several sections, then the value will be replaced for the first one
-    // the dimension of the passed value vector and the current number of section values must be the same
-    bool update_values_by_section_name(const std::string& section_name, const std::vector<double>& values)
-    {
-        bool is_success = false;
-
-        if (section_name.size() == 0 || values.size() == 0)
-            return is_success;
-
-        const std::size_t section_name_idx = initial_config.find(section_name);
-        if (section_name_idx == std::string::npos)
-            return is_success;
-
-        std::vector<double> section_values;
-        std::string section_param;
-        for (const std::pair<std::string, sectionValues>& section_info : data)
-        {
-            if (section_info.second.section_name == section_name)
-            {
-                section_values = section_info.second.section_values;
-                section_param = section_info.second.section_value;
-                break;
-            }
-        }
-
-        if (section_values.size() != values.size())
-            return is_success;
-
-        section_values.clear();
-        std::copy(values.begin(), values.end(), back_inserter(section_values));
-
-        const size_t section_values_end_pos = initial_config.find(']', section_name_idx + section_name.size() - 1);
-        const size_t start_slice_idx = ((section_name_idx + section_name.size() + 1) + section_param.size() + 1) + 1;
-        const size_t slice_chars_count = section_values_end_pos - start_slice_idx;
-
-        if (section_values_end_pos == std::string::npos || start_slice_idx == std::string::npos || slice_chars_count == 0)
-            return is_success;
-
-        // form a list of values with a separator ',' as a string
-        std::string initial_bind_str = initial_config.substr(start_slice_idx, slice_chars_count);
-        initial_bind_str += ',';
-
-        // for a substring (value) in the current config, we look for indices and replace the current slice for the last found index of the substring we are looking for
-        size_t values_replaced_count = 0;
-        size_t last_delim_pos = 0;
-        for (size_t l = 0; l < initial_bind_str.size(); l++)
-        {
-            if (initial_bind_str[l] == ',' && l > 0)
-            {
-                try
-                {
-                    std::string _double_str_reps = initial_bind_str.substr(last_delim_pos, l - last_delim_pos);
-
-                    if (!trim_delimeter_on_start(_double_str_reps) || _double_str_reps.size() == 0)
-                        continue;
-
-                    replace_section_value_by_index(_double_str_reps, values, values_replaced_count);
-
-                    values_replaced_count += 1;
-                }
-                catch (...)
-                {
-                    continue;
-                }
-
-                last_delim_pos = l;
-            }
-        }
-
-        is_success = true;
-        return is_success;
-    }
-
-    // updates a specific value from the list of section values at the passed index
-    // index must start from 0
-    bool update_section_value_by_index(const std::string& section_name, const double& value, const size_t index)
-    {
-        bool is_success = false;
-
-        if (section_name.size() == 0)
-            return is_success;
-
-        const std::size_t section_name_idx = initial_config.find(section_name);
-        if (section_name_idx == std::string::npos)
-            return is_success;
-
-        std::vector<double> section_values;
-        std::string section_param;
-        for (const std::pair<std::string, sectionValues>& section_info : data)
-        {
-            if (section_info.second.section_name == section_name)
-            {
-                section_values = section_info.second.section_values;
-                section_param = section_info.second.section_value;
-                break;
-            }
-        }
-
-        if (index > section_values.size())
-            return is_success;
-
-        section_values[index] = value;
-
-        const size_t section_values_end_pos = initial_config.find(']', section_name_idx + section_name.size() - 1);
-        const size_t start_slice_idx = ((section_name_idx + section_name.size() + 1) + section_param.size() + 1) + 1;
-        const size_t slice_chars_count = section_values_end_pos - start_slice_idx;
-
-        if (section_values_end_pos == std::string::npos || start_slice_idx == std::string::npos || slice_chars_count == 0)
-            return is_success;
-
-        // form a list of values with a separator ',' as a string
-        std::string initial_bind_str = initial_config.substr(start_slice_idx, slice_chars_count);
-        initial_bind_str += ',';
-
-        // for a substring (value) in the current config, look for indices and replace the current slice for the last found index of the desired substring
-        size_t values_replaced_count = 0;
-        size_t last_delim_pos = 0;
-
-        std::vector<double> values;
-        values.push_back(value);
-        for (size_t l = 0; l < initial_bind_str.size(); l++)
-        {
-            if (initial_bind_str[l] == ',' && l > 0)
-            {
-                try
-                {
-                    std::string _double_str_reps = initial_bind_str.substr(last_delim_pos, l - last_delim_pos);
-
-                    if (!trim_delimeter_on_start(_double_str_reps) || _double_str_reps.size() == 0)
-                        continue;
-
-                    if (index == values_replaced_count)
-                    {
-                        replace_section_value_by_index(_double_str_reps, values, 0);
-                        break;
-                    }
-
-                    values_replaced_count += 1;
-                }
-                catch (...)
-                {
-                    continue;
-                }
-
-                last_delim_pos = l;
-            }
-        }
-
-        is_success = true;
-        return is_success;
-    }
-};
-
-// remove delimeters from the start of string
-inline bool trim_delimeter_on_start(std::string& double_str_reps)
-{
-    try
-    {
-        if (double_str_reps[0] == COMMA_DELIM)
-        {
-            for (size_t k = 0; k < double_str_reps.size(); k++)
-            {
-                if (double_str_reps[0] != COMMA_DELIM)
-                    break;
-                else if (double_str_reps[0] == COMMA_DELIM)
-                    double_str_reps.erase(0, 1);
-            }
-        }
-    }
-    catch (...)
-    {
-        return false;
-    }
-
-    return true;
+TEST(lexer_simple) {
+    Lexer lexer("GEOGCS[\"WGS_84\"]");
+    auto tokens = lexer.tokenize();
+    
+    // tokens: GEOGCS [ "WGS_84" ] EOF
+    //         0      1  2       3  4
+    assert(tokens.size() == 5);
+    assert(tokens[0].type == TokenType::Identifier && tokens[0].value == "GEOGCS");
+    assert(tokens[1].type == TokenType::LBracket);
+    assert(tokens[2].type == TokenType::String && tokens[2].value == "WGS_84");
+    assert(tokens[3].type == TokenType::RBracket);
+    assert(tokens[4].type == TokenType::EndOfInput);
 }
 
-// check that the beginning is from the beginning of the section
-inline bool is_starting_section_value(const std::string& actual_substr)
-{
-    if (actual_substr.size() == 0)
-        return false;
-
-    const size_t sequence_delim_pos = actual_substr.find(',');
-    const size_t sequence_start_section_pos = actual_substr.find('[');
-
-    return sequence_delim_pos < sequence_start_section_pos && sequence_delim_pos != std::string::npos && sequence_start_section_pos != std::string::npos;
+TEST(lexer_numbers) {
+    Lexer lexer("SPHEROID[\"test\",6378137.0,-298.257,1.5e-10]");
+    auto tokens = lexer.tokenize();
+    
+    // tokens: SPHEROID [ "test" , 6378137.0 , -298.257 , 1.5e-10 ] EOF
+    //         0        1  2     3  4         5  6        7  8      9 10
+    assert(tokens[4].type == TokenType::Number && tokens[4].value == "6378137.0");
+    assert(tokens[6].type == TokenType::Number && tokens[6].value == "-298.257");
+    assert(tokens[8].type == TokenType::Number && tokens[8].value == "1.5e-10");
 }
 
-// fill section with values
-inline void parse_values(const std::string& section_values, std::vector<double>& values)
-{
-    size_t last_delim_pos = 0;
-    for (size_t l = 0; l < section_values.size(); l++)
-    {
-        if (section_values[l] == ',' && l > 0)
-        {
-            try
-            {
-                std::string _double_str_reps = section_values.substr(last_delim_pos, l - last_delim_pos);
-
-                if (!trim_delimeter_on_start(_double_str_reps) || _double_str_reps.size() == 0)
-                    continue;
-
-                if (_double_str_reps.size() == 0)
-                    continue;
-
-                const double parsed_double = std::stod(_double_str_reps);
-                values.push_back(parsed_double);
-            }
-            catch (...)
-            {
-                continue;
-            }
-
-            last_delim_pos = l;
-        }
-    }
+TEST(lexer_whitespace) {
+    Lexer lexer("GEOGCS [ \"name\" , 123 ]");
+    auto tokens = lexer.tokenize();
+    
+    // tokens: GEOGCS [ "name" , 123 ] EOF
+    //         0      1  2     3  4  5  6
+    assert(tokens.size() == 7);
+    assert(tokens[0].type == TokenType::Identifier);
+    assert(tokens[2].type == TokenType::String);
+    assert(tokens[4].type == TokenType::Number);
 }
 
-// checking for the list of values in a string until the end of the section
-inline bool is_can_parse_values(const std::string& actual_substr)
-{
-    if (actual_substr.size() == 0)
-        return false;
+// ============================================================================
+// parser tests
+// ============================================================================
 
-    const size_t sequence_delim_pos = actual_substr.find(',');
-    const size_t sequence_start_section_pos = actual_substr.find('[');
-    const size_t sequence_end_section_pos = actual_substr.find(']');
-
-    const bool is_first_literal_delim = actual_substr[0] == COMMA_DELIM || actual_substr[0] == START_SECTION_DELIM || actual_substr[0] == END_SECTION_DELIM || actual_substr[0] == DOUBLE_QUOTE_DELIM;
-
-    const bool is_first_literal_number_or_sign = actual_substr[0] == '0' ||
-        actual_substr[0] == '1' ||
-        actual_substr[0] == '2' ||
-        actual_substr[0] == '3' ||
-        actual_substr[0] == '4' ||
-        actual_substr[0] == '5' ||
-        actual_substr[0] == '6' ||
-        actual_substr[0] == '7' ||
-        actual_substr[0] == '8' ||
-        actual_substr[0] == '9' || actual_substr[0] == '-';
-
-    std::string test_values_str_repr = actual_substr;
-    std::replace(test_values_str_repr.begin(), test_values_str_repr.end(), '[', COMMA_DELIM);
-    std::replace(test_values_str_repr.begin(), test_values_str_repr.end(), ']', COMMA_DELIM);
-
-    std::string section_values = test_values_str_repr;
-
-    std::vector<double> values;
-    parse_values(section_values, values);
-
-    return values.size() > 0 && !is_first_literal_delim && is_first_literal_number_or_sign;
+TEST(parser_simple_section) {
+    auto doc = WKTDocument::parse("GEOGCS[\"GCS_WGS_1984\"]");
+    
+    assert(doc.root() != nullptr);
+    assert(doc.root()->name() == "GEOGCS");
+    assert(doc.root()->stringValue() == "GCS_WGS_1984");
+    assert(doc.root()->numbers().empty());
+    assert(doc.root()->children().empty());
 }
 
-// check if string contains delimiters or non - symbols
-bool is_string_without_delimeters(const std::string& actual_substr)
-{
-    if (actual_substr.size() == 0)
-        return true;
-
-    bool is_success = false;
-
-    for (size_t k = 0; k < actual_substr.size(); k++)
-    {
-        if (actual_substr[k] == COMMA_DELIM
-            || actual_substr[k] == START_SECTION_DELIM
-            || actual_substr[k] == END_SECTION_DELIM
-            || actual_substr[k] == DOUBLE_QUOTE_DELIM
-            || actual_substr[k] == DOT_DELIM)
-            return is_success;
-    }
-
-    is_success = true;
-    return is_success;
+TEST(parser_section_with_numbers) {
+    auto doc = WKTDocument::parse("SPHEROID[\"WGS_1984\",6378137.0,298.257224]");
+    
+    assert(doc.root()->stringValue() == "WGS_1984");
+    assert(doc.root()->numbers().size() == 2);
+    assert(std::abs(doc.root()->numbers()[0] - 6378137.0) < 0.001);
+    assert(std::abs(doc.root()->numbers()[1] - 298.257224) < 0.000001);
 }
 
-// read the list of values for the section
-void try_parse_values_from_section(const std::string& actual_substr, std::pair<std::string, sectionValues>& data)
-{
-    if (actual_substr.size() == 0)
-        return;
-
-    std::string test_values_str_repr = actual_substr;
-    std::replace(test_values_str_repr.begin(), test_values_str_repr.end(), '[', COMMA_DELIM);
-    std::replace(test_values_str_repr.begin(), test_values_str_repr.end(), ']', COMMA_DELIM);
-
-    std::string section_values = test_values_str_repr;
-    std::vector<double> values;
-    parse_values(section_values, values);
-
-    if (values.size() != 0 && data.second.section_values.size() == 0)
-        data.second.section_values = values;
+TEST(parser_nested) {
+    auto doc = WKTDocument::parse(
+        "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257224]]"
+    );
+    
+    assert(doc.root()->name() == "DATUM");
+    assert(doc.root()->children().size() == 1);
+    
+    auto* spheroid = doc.root()->findChild("SPHEROID");
+    assert(spheroid != nullptr);
+    assert(spheroid->stringValue() == "WGS_1984");
+    assert(spheroid->numbers().size() == 2);
 }
 
-// read the string value after the beginning of the section for the next three cases:
-// when the section is simple, like: PARAMETER[\"NO_PROJECTION\"]
-// when section is complex (with values) 
-// and when section is complex and nested: PRIMEM[\"Greenwich\",0.0], DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]]
-void try_parse_section_value(const std::string& actual_substr, std::pair<std::string, sectionValues>& data)
-{
-    if (actual_substr.size() == 0)
-        return;
-
-    const size_t sequence_delim_pos = actual_substr.find(',');
-
-    const std::string value_complex_or_complex_nested = actual_substr.substr(1, sequence_delim_pos - 2);
-    const std::string value_simple = actual_substr.substr(1, sequence_delim_pos - 3);
-
-    if (value_complex_or_complex_nested.size() == 0 && value_simple.size())
-        return;
-
-    const bool is_value_complex_or_complex_nested = is_string_without_delimeters(value_complex_or_complex_nested);
-    const bool is_value_simple = is_string_without_delimeters(value_simple);
-
-    if (is_value_complex_or_complex_nested && is_value_simple)
-    {
-        if (data.second.section_value.size() == 0)
-            data.second.section_value = value_complex_or_complex_nested.size() > value_simple.size() ? value_complex_or_complex_nested : value_simple;
-    }
-    else if (is_value_complex_or_complex_nested)
-    {
-        if (data.second.section_value.size() == 0)
-            data.second.section_value = value_complex_or_complex_nested;
-    }
-    else if (!is_value_complex_or_complex_nested && is_value_simple)
-    {
-        if (data.second.section_value.size() == 0)
-            data.second.section_value = value_simple;
-    }
+TEST(parser_complex) {
+    std::string wkt = 
+        "GEOGCS[\"GCS_WGS_1984\","
+        "DATUM[\"D_WGS_1984\","
+        "SPHEROID[\"WGS_1984\",6378137.0,298.257224]],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "UNIT[\"Degree\",0.0174532925199433]]";
+    
+    auto doc = WKTDocument::parse(wkt);
+    
+    assert(doc.root()->name() == "GEOGCS");
+    assert(doc.root()->children().size() == 3);
+    
+    assert(doc.find("DATUM") != nullptr);
+    assert(doc.find("SPHEROID") != nullptr);
+    assert(doc.find("PRIMEM") != nullptr);
+    assert(doc.find("UNIT") != nullptr);
 }
 
-bool trim_shp_config_before_section(std::string& actual_substr)
-{
-    if (actual_substr.size() == 0)
-        return false;
-
-    bool is_success = false;
-    const size_t sequence_delim_pos = actual_substr.find(',');
-
-    if (sequence_delim_pos != std::string::npos)
-    {
-        is_success = true;
-        actual_substr.erase(0, sequence_delim_pos + 1);
-    }
-    else
-    {
-        is_success = false;
-    }
-
-    return is_success;
+TEST(parser_pulkovo) {
+    std::string wkt = 
+        "GEOGCS[\"GCS_Pulkovo_1942\","
+        "DATUM[\"D_Pulkovo_1942\","
+        "SPHEROID[\"Krasovsky_1940\",6378245.0,298.3]],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "UNIT[\"Degree\",0.0174532925199433,,666.0010098,1.0]]";
+    
+    auto doc = WKTDocument::parse(wkt);
+    
+    assert(doc.getDatumName() == "D_Pulkovo_1942");
+    assert(doc.getSpheroidName() == "Krasovsky_1940");
+    
+    auto params = doc.getSpheroidParams();
+    assert(params.has_value());
+    assert(std::abs(params->first - 6378245.0) < 0.1);
+    assert(std::abs(params->second - 298.3) < 0.01);
 }
 
-void try_parse_tail(std::string& actual_substr, std::vector<std::pair<std::string, sectionValues>>& sections_data)
-{
-    if (actual_substr.size() == 0 || sections_data.size() == 0)
-        return;
+// ============================================================================
+// real-world wkt samples (from original codebase)
+// ============================================================================
 
-    std::string tail_substring = actual_substr;
-    size_t pos = 0;
-
-    //"Lambert_Conformal_Conic"]] -> no delimiters -> simple section
-    //"Greenwich",0.0]] -> one delimiters -> complex section
-    //"WGS_1984",6378137.000000,298.257224]]] -> more than one delimiter -> complex section with values
-
-    long delimeters_count = 0;
-    for (size_t t = 0; t < tail_substring.size(); t++)
-    {
-        if (tail_substring[t] == ',')
-            delimeters_count += 1;
-    }
-
-    if (delimeters_count == 0)
-    {
-        pos = tail_substring.find(']');
-        if (pos != std::string::npos)
-            sections_data.back().second.section_value = tail_substring.substr(1, pos - 2);
-    }
-    else if (delimeters_count >= 1)
-    {
-        try_parse_section_value(tail_substring, sections_data.back());
-
-        pos = tail_substring.find(',');
-        tail_substring = tail_substring.substr(pos);
-        try_parse_values_from_section(tail_substring, sections_data.back());
-    }
+TEST(sample_simple_primem) {
+    // simple geogcs with just primem
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\",PRIMEM[\"Greenwich\",0.0]]"
+    );
+    
+    assert(doc.root()->name() == "GEOGCS");
+    assert(doc.root()->stringValue() == "GCS_WGS_1984");
+    assert(doc.find("PRIMEM") != nullptr);
+    assert(doc.find("PRIMEM")->stringValue() == "Greenwich");
+    assert(doc.find("PRIMEM")->numbers().size() == 1);
+    assert(doc.find("PRIMEM")->numbers()[0] == 0.0);
 }
 
-// set the type of the section by the presence of values in it
-void set_sections_type(std::vector<std::pair<std::string, sectionValues>>& sections_data)
-{
-    if (sections_data.size() == 0)
-        return;
-
-    for (auto& section_packed_data : sections_data)
-    {
-        if (section_packed_data.second.section_values.size() == 0)
-            section_packed_data.second.is_simple_or_nested = true;
-        else
-            section_packed_data.second.is_simple_or_nested = false;
-    }
-
-    // the first section is unique - the root, but despite its nesting, it does not directly contain a list of values
+TEST(sample_unit_parameter) {
+    // geogcs with unit and parameter
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\",UNIT[\"T\",10.0],PARAMETER[\"False_Easting\",500000.0]]"
+    );
+    
+    assert(doc.find("UNIT") != nullptr);
+    assert(doc.find("UNIT")->stringValue() == "T");
+    assert(doc.find("UNIT")->numbers()[0] == 10.0);
+    
+    assert(doc.find("PARAMETER") != nullptr);
+    assert(doc.find("PARAMETER")->stringValue() == "False_Easting");
+    assert(doc.find("PARAMETER")->numbers()[0] == 500000.0);
 }
 
-void try_parse_shp_prj(CString _inputStrConfig, SHPConfigPrj& data)
-{
-    CT2CA pszConvertedAnsiString(_inputStrConfig);
-
-    std::string inputStrConfig(pszConvertedAnsiString);
-
-    size_t pos = 0;
-
-    std::string actual_substr;
-    std::vector<std::pair<std::string, sectionValues>> sections_data;
-
-    data.initial_config = inputStrConfig;
-
-    std::pair<std::string, sectionValues> section_data;
-    while ((pos = inputStrConfig.find('[')) != std::string::npos)
-    {
-        actual_substr = inputStrConfig.substr(0, pos);
-        bool is_need_parse_section_value = is_starting_section_value(inputStrConfig);
-        bool is_need_parse_values = is_can_parse_values(actual_substr);
-
-        if (is_string_without_delimeters(actual_substr))
-        {
-            section_data.first = actual_substr;
-            section_data.second.section_name = actual_substr;
-
-            sections_data.push_back(section_data);
-        }
-
-        if (is_need_parse_values)
-        {
-            if (sections_data.size() != 0)
-                try_parse_values_from_section(inputStrConfig, sections_data.back());
-        }
-
-        if (is_need_parse_section_value)
-        {
-            if (sections_data.size() != 0)
-                try_parse_section_value(inputStrConfig, sections_data.back());
-
-            if (trim_shp_config_before_section(inputStrConfig))
-                continue;
-        }
-
-        inputStrConfig.erase(0, pos + 1);
-    }
-
-    try_parse_tail(inputStrConfig, sections_data);
-
-    set_sections_type(sections_data);
-
-    data.data = sections_data;
+TEST(sample_full_wgs84) {
+    // complete wgs84 definition
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\","
+        "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "UNIT[\"Kilometer\",1000.0]]"
+    );
+    
+    assert(doc.getDatumName() == "D_WGS_1984");
+    assert(doc.getSpheroidName() == "WGS_1984");
+    
+    auto params = doc.getSpheroidParams();
+    assert(params.has_value());
+    assert(std::abs(params->first - 6378137.0) < 0.01);
+    assert(std::abs(params->second - 298.257224) < 0.000001);
+    
+    assert(doc.find("UNIT")->stringValue() == "Kilometer");
+    assert(doc.find("UNIT")->numbers()[0] == 1000.0);
 }
 
-int main()
+TEST(sample_pulkovo_with_extra_values) {
+    // pulkovo with extra empty values in unit section
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_Pulkovo_1942\","
+        "DATUM[\"D_Pulkovo_1942\",SPHEROID[\"Krasovsky_1940\",6378245.0,298.3]],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "UNIT[\"Degree\",0.0174532925199433,,666.0010098,1.0]]"
+    );
+    
+    assert(doc.getDatumName() == "D_Pulkovo_1942");
+    assert(doc.getSpheroidName() == "Krasovsky_1940");
+    
+    // unit should have multiple numbers (parser handles empty values)
+    auto* unit = doc.find("UNIT");
+    assert(unit != nullptr);
+    assert(unit->stringValue() == "Degree");
+    assert(unit->numbers().size() >= 1);
+}
+
+TEST(sample_deeply_nested_units) {
+    // deeply nested unit structure
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\","
+        "UNIT1[\"Kilometer\",UNIT2[\"R\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90,,,90]]]]"
+    );
+    
+    assert(doc.root()->stringValue() == "GCS_WGS_1984");
+    
+    auto* unit1 = doc.find("UNIT1");
+    assert(unit1 != nullptr);
+    assert(unit1->stringValue() == "Kilometer");
+    
+    auto* unit2 = doc.find("UNIT2");
+    assert(unit2 != nullptr);
+    assert(unit2->stringValue() == "R");
+    
+    auto* unit3 = doc.find("UNIT3");
+    assert(unit3 != nullptr);
+    assert(unit3->stringValue() == "Kilometer");
+    assert(unit3->numbers()[0] == 10.0);
+}
+
+TEST(sample_complex_with_projections) {
+    // complex wkt with multiple projections and parameters
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\","
+        "UNIT1[\"Kilometer\",UNIT2[\"Rr\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90]]],"
+        "DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],"
+        "UNIT[\"Kilometer\",1000.0],"
+        "PARAMETER2[\"Central_Meridian_Test\",-124.5],"
+        "PROJECTION[\"Lambert_Conformal_Conic\"],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "PROJECTION2[\"Lambert_Conformal_Conic_Test\"],"
+        "PROJECTION[\"Lambert_Conformal_Conic\"]]"
+    );
+    
+    assert(doc.getDatumName() == "D_WGS_1984");
+    assert(doc.getSpheroidName() == "WGS_1984");
+    
+    // find projections
+    auto projections = doc.root()->findAllChildren("PROJECTION");
+    assert(projections.size() == 2);
+    
+    auto* param2 = doc.find("PARAMETER2");
+    assert(param2 != nullptr);
+    assert(param2->stringValue() == "Central_Meridian_Test");
+    assert(param2->numbers()[0] == -124.5);
+    
+    auto* proj2 = doc.find("PROJECTION2");
+    assert(proj2 != nullptr);
+    assert(proj2->stringValue() == "Lambert_Conformal_Conic_Test");
+}
+
+TEST(sample_simple_projection) {
+    // simple projection example
+    auto doc = WKTDocument::parse(
+        "GEOGCS[\"GCS_WGS_1984\","
+        "PROJECTION[\"Lambert_Conformal_Conic\"],"
+        "PRIMEM[\"Greenwich2\",0.0]]"
+    );
+    
+    assert(doc.root()->stringValue() == "GCS_WGS_1984");
+    
+    auto* proj = doc.find("PROJECTION");
+    assert(proj != nullptr);
+    assert(proj->stringValue() == "Lambert_Conformal_Conic");
+    
+    auto* primem = doc.find("PRIMEM");
+    assert(primem != nullptr);
+    assert(primem->stringValue() == "Greenwich2");
+}
+
+// ============================================================================
+// navigation tests
+// ============================================================================
+
+TEST(navigation_find_by_path) {
+    std::string wkt = 
+        "GEOGCS[\"test\","
+        "DATUM[\"D_test\","
+        "SPHEROID[\"S_test\",123,456]]]";
+    
+    auto doc = WKTDocument::parse(wkt);
+    
+    // direct child
+    assert(doc.find("DATUM") != nullptr);
+    
+    // path-based
+    assert(doc.find("DATUM/SPHEROID") != nullptr);
+    
+    // deep search
+    assert(doc.find("SPHEROID") != nullptr);
+    assert(doc.find("SPHEROID")->stringValue() == "S_test");
+}
+
+// ============================================================================
+// modification tests
+// ============================================================================
+
+TEST(modification_set_string) {
+    auto doc = WKTDocument::parse("SPHEROID[\"old_name\",123,456]");
+    
+    bool result = doc.setValue("SPHEROID", "new_name");
+    assert(result);
+    assert(doc.root()->stringValue() == "new_name");
+    
+    // check serialization
+    std::string output = doc.toString();
+    assert(output.find("new_name") != std::string::npos);
+    assert(output.find("old_name") == std::string::npos);
+}
+
+TEST(modification_set_number) {
+    auto doc = WKTDocument::parse("SPHEROID[\"test\",6378137.0,298.257224]");
+    
+    bool result = doc.setNumber("SPHEROID", 1, 300.0);
+    assert(result);
+    assert(std::abs(doc.root()->numbers()[1] - 300.0) < 0.0001);
+    
+    // invalid index should fail
+    result = doc.setNumber("SPHEROID", 10, 1.0);
+    assert(!result);
+}
+
+TEST(modification_set_numbers) {
+    auto doc = WKTDocument::parse("SPHEROID[\"test\",100.0,200.0]");
+    
+    std::vector<double> newValues = {111.0, 222.0};
+    bool result = doc.setNumbers("SPHEROID", newValues);
+    assert(result);
+    
+    // wrong size should fail
+    std::vector<double> wrongSize = {1.0, 2.0, 3.0};
+    result = doc.setNumbers("SPHEROID", wrongSize);
+    assert(!result);
+}
+
+TEST(modification_nested) {
+    std::string wkt = 
+        "DATUM[\"D_WGS\","
+        "SPHEROID[\"WGS\",6378137.0,298.257]]";
+    
+    auto doc = WKTDocument::parse(wkt);
+    
+    // modify nested element
+    doc.setValue("SPHEROID", "ITRF_2008");
+    doc.setNumber("SPHEROID", 0, 6378140.0);
+    
+    assert(doc.find("SPHEROID")->stringValue() == "ITRF_2008");
+    assert(std::abs(doc.find("SPHEROID")->numbers()[0] - 6378140.0) < 0.1);
+}
+
+// ============================================================================
+// serialization tests
+// ============================================================================
+
+TEST(serialization_roundtrip) {
+    std::string original = "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137,298.257224]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433]]";
+    
+    auto doc1 = WKTDocument::parse(original);
+    std::string serialized = doc1.toString();
+    
+    auto doc2 = WKTDocument::parse(serialized);
+    
+    assert(utils::areEquivalent(doc1, doc2));
+}
+
+TEST(serialization_pretty) {
+    auto doc = WKTDocument::parse("GEOGCS[\"test\",DATUM[\"d\",SPHEROID[\"s\",1,2]]]");
+    std::string pretty = doc.toString(true);
+    
+    // should contain newlines
+    assert(pretty.find('\n') != std::string::npos);
+}
+
+// ============================================================================
+// utility tests
+// ============================================================================
+
+TEST(utils_validate) {
+    assert(utils::validateWKT("GEOGCS[\"test\"]"));
+    assert(!utils::validateWKT("GEOGCS[\"test\""));  // missing bracket
+    assert(!utils::validateWKT(""));
+}
+
+TEST(utils_guess_epsg) {
+    auto doc = WKTDocument::parse("GEOGCS[\"test\",DATUM[\"D_WGS_1984\"]]");
+    auto epsg = utils::guessEPSG(doc);
+    
+    assert(epsg.has_value());
+    assert(*epsg == 4326);
+}
+
+// ============================================================================
+// edge cases
+// ============================================================================
+
+TEST(edge_empty_values) {
+    // some wkt has empty slots: UNIT["Degree",0.017,,666,1.0]
+    auto doc = WKTDocument::parse("UNIT[\"Degree\",0.017,,666,1.0]");
+    
+    assert(doc.root()->stringValue() == "Degree");
+    // parser should handle empty values gracefully
+}
+
+TEST(edge_scientific_notation) {
+    auto doc = WKTDocument::parse("TEST[\"n\",1.5e-10,2.3E+5,-4.5e10]");
+    
+    const auto& nums = doc.root()->numbers();
+    assert(nums.size() == 3);
+    assert(std::abs(nums[0] - 1.5e-10) < 1e-20);
+    assert(std::abs(nums[1] - 2.3e+5) < 1);
+    assert(std::abs(nums[2] - -4.5e10) < 1e5);
+}
+
+TEST(edge_deeply_nested) {
+    std::string wkt = "A[\"a\",B[\"b\",C[\"c\",D[\"d\",E[\"e\",1,2,3]]]]]";
+    auto doc = WKTDocument::parse(wkt);
+    
+    auto* e = doc.find("E");
+    assert(e != nullptr);
+    assert(e->numbers().size() == 3);
+}
+
+TEST(edge_multiple_empty_values) {
+    // handle multiple consecutive empty values
+    auto doc = WKTDocument::parse("TEST[\"name\",1.0,,,2.0,,,3.0]");
+    
+    assert(doc.root()->stringValue() == "name");
+    // should parse without crashing
+}
+
+// ============================================================================
+// main
+// ============================================================================
+
+int main() 
 {
-    SHPConfigPrj parsed_data;
-
-    //ArcGIS data types and accuracy
-    //https://pro.arcgis.com/ru/pro-app/latest/help/data/geodatabases/overview/arcgis-field-data-types.htm
-
-    //- if the section has the form UNIT3[\"Kilometer\",], then the simple flag will be set for the section
-    //- all numerical representations are parsed as double
-    //- the config line must be without spaces, otherwise some values may be considered incorrect
-
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",PRIMEM[\"Greenwich\",0.0]]";
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",UNIT[\"T\",10.0],PARAMETER[\"False_Easting\",500000.0]]";
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Kilometer\",1000.0]]";
-    CString testStr = "GEOGCS[\"GCS_Pulkovo_1942\",DATUM[\"D_Pulkovo_1942\",SPHEROID[\"Krasovsky_1940\",6378245.0,298.3]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433,,666.0010098,1.0]]";
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",UNIT1[\"Kilometer\",UNIT2[\"R\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90,,,90]]]]";
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",UNIT1[\"Kilometer\",UNIT2[\"Rr\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90]]],DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],UNIT[\"Kilometer\",1000.0],PARAMETER2[\"Central_Meridian_Test\",-124.5],PROJECTION[\"Lambert_Conformal_Conic\"],PRIMEM[\"Greenwich\",0.0],PROJECTION2[\"Lambert_Conformal_Conic_Test\"],PROJECTION[\"Lambert_Conformal_Conic\"]]";
-    //CString testStr = "GEOGCS[\"GCS_WGS_1984\",PROJECTION[\"Lambert_Conformal_Conic\"],PRIMEM[\"Greenwich2\",0.0]]";
-
-    try_parse_shp_prj(testStr, parsed_data);
-
-    parsed_data.update_section_value_by_section_name("SPHEROID", "D_ITRF_2008");
-    std::vector<double> values_for_test;
-
-    //values_for_test.push_back(-1.00);
-    //values_for_test.push_back(21.00);
-    //values_for_test.push_back(1.23458891456789565456654543);
-    //values_for_test.push_back(-1.0010592323288999643499953);
-    //values_for_test.push_back(-100.0010592323288999643499953);
-
-    //values_for_test.push_back(12);
-    //values_for_test.push_back(-0.298);
-    //parsed_data.update_values_by_section_name("SPHEROID", values_for_test);
-
-    //values_for_test.clear();
-    //values_for_test.push_back(6378245.0);
-    //values_for_test.push_back(298.3);
-    //parsed_data.update_values_by_section_name("SPHEROID", values_for_test);
-
-    //values_for_test.clear();
-    //values_for_test.push_back(178.32);
-    //parsed_data.update_values_by_section_name("PRIMEM", values_for_test);
-
-    parsed_data.update_section_value_by_index("SPHEROID", -0.1234222, 1);
-    return 0;
+    std::cout << "=== WKT Parser Tests ===\n\n";
+    
+    int failures = 0;
+    
+    // lexer tests
+    std::cout << "--- Lexer ---\n";
+    RUN_TEST(lexer_simple);
+    RUN_TEST(lexer_numbers);
+    RUN_TEST(lexer_whitespace);
+    
+    // parser tests
+    std::cout << "\n--- Parser ---\n";
+    RUN_TEST(parser_simple_section);
+    RUN_TEST(parser_section_with_numbers);
+    RUN_TEST(parser_nested);
+    RUN_TEST(parser_complex);
+    RUN_TEST(parser_pulkovo);
+    
+    // real-world samples
+    std::cout << "\n--- Real-world Samples ---\n";
+    RUN_TEST(sample_simple_primem);
+    RUN_TEST(sample_unit_parameter);
+    RUN_TEST(sample_full_wgs84);
+    RUN_TEST(sample_pulkovo_with_extra_values);
+    RUN_TEST(sample_deeply_nested_units);
+    RUN_TEST(sample_complex_with_projections);
+    RUN_TEST(sample_simple_projection);
+    
+    // navigation tests
+    std::cout << "\n--- Navigation ---\n";
+    RUN_TEST(navigation_find_by_path);
+    
+    // modification tests
+    std::cout << "\n--- Modification ---\n";
+    RUN_TEST(modification_set_string);
+    RUN_TEST(modification_set_number);
+    RUN_TEST(modification_set_numbers);
+    RUN_TEST(modification_nested);
+    
+    // serialization tests
+    std::cout << "\n--- Serialization ---\n";
+    RUN_TEST(serialization_roundtrip);
+    RUN_TEST(serialization_pretty);
+    
+    // utility tests
+    std::cout << "\n--- Utilities ---\n";
+    RUN_TEST(utils_validate);
+    RUN_TEST(utils_guess_epsg);
+    
+    // edge cases
+    std::cout << "\n--- Edge Cases ---\n";
+    RUN_TEST(edge_empty_values);
+    RUN_TEST(edge_scientific_notation);
+    RUN_TEST(edge_deeply_nested);
+    RUN_TEST(edge_multiple_empty_values);
+    
+    std::cout << "\n=== Summary ===\n";
+    if (failures == 0) {
+        std::cout << "All tests passed!\n";
+    } else {
+        std::cout << failures << " test(s) failed.\n";
+    }
+    
+    // demo usage
+    std::cout << "\n=== Demo ===\n";
+    
+    const std::string wkt = 
+        "GEOGCS[\"GCS_Pulkovo_1942\","
+        "DATUM[\"D_Pulkovo_1942\","
+        "SPHEROID[\"Krasovsky_1940\",6378245.0,298.3]],"
+        "PRIMEM[\"Greenwich\",0.0],"
+        "UNIT[\"Degree\",0.0174532925199433]]";
+    
+    std::cout << "Original:\n" << wkt << "\n\n";
+    
+    auto doc = WKTDocument::parse(wkt);
+    
+    // query
+    std::cout << "Datum: " << doc.getDatumName().value_or("unknown") << "\n";
+    std::cout << "Spheroid: " << doc.getSpheroidName().value_or("unknown") << "\n";
+    
+    if (auto params = doc.getSpheroidParams()) {
+        std::cout << "Semi-major axis: " << params->first << "\n";
+        std::cout << "Inverse flattening: " << params->second << "\n";
+    }
+    
+    // modify
+    doc.setValue("SPHEROID", "ITRF_2008");
+    doc.setNumber("SPHEROID", 0, 6378140.0);
+    
+    std::cout << "\nModified (pretty):\n" << doc.toString(true) << "\n";
+    
+    return failures;
 }

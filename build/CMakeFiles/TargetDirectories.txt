@@ -1,0 +1,9 @@
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/wkt_parser_lib.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/wkt_parser.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/single_header.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/edit_cache.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/rebuild_cache.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/list_install_components.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/install.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/install/local.dir
+/Users/ivan/Documents/dev/wkt_parser/build/CMakeFiles/install/strip.dir

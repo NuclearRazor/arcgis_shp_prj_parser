@@ -1,0 +1,2 @@
+/usr/bin/ar qc libwkt_parser_lib.a CMakeFiles/wkt_parser_lib.dir/src/lexer.cpp.o CMakeFiles/wkt_parser_lib.dir/src/ast.cpp.o CMakeFiles/wkt_parser_lib.dir/src/parser.cpp.o CMakeFiles/wkt_parser_lib.dir/src/document.cpp.o
+/usr/bin/ranlib libwkt_parser_lib.a

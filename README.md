@@ -1,15 +1,111 @@
-**ArcGIS prj parser**
+# WKT Parser
 
-ArcGIS prj (non wkt, projection config data) file parser
+A modern C++17 parser for ESRI WKT (Well-Known Text) projection files (.prj).
 
-- all numeric representations in section values are parsed as double
-- the config line must be without spaces, otherwise some values may be considered incorrect, examples of the .shp file config lines to parse:
+## Features
 
-"GEOGCS[\"GCS_WGS_1984\",PRIMEM[\"Greenwich\",0.0]]";
-"GEOGCS[\"GCS_WGS_1984\",UNIT[\"T\",10.0],PARAMETER[\"False_Easting\",500000.0]]";
-"GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Kilometer\",1000.0]]";
-"GEOGCS[\"GCS_Pulkovo_1942\",DATUM[\"D_Pulkovo_1942\",SPHEROID[\"Krasovsky_1940\",6378245.0,298.3]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433,,666.0010098,1.0]]";
-"GEOGCS[\"GCS_WGS_1984\",UNIT1[\"Kilometer\",UNIT2[\"R\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90,,,90]]]]";
-"GEOGCS[\"GCS_WGS_1984\",UNIT1[\"Kilometer\",UNIT2[\"Rr\",UNIT3[\"Kilometer\",10.0,,-23.0,45,-90]]],DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.000000,298.257224]],UNIT[\"Kilometer\",1000.0],PARAMETER2[\"Central_Meridian_Test\",-124.5],PROJECTION[\"Lambert_Conformal_Conic\"],PRIMEM[\"Greenwich\",0.0],PROJECTION2[\"Lambert_Conformal_Conic_Test\"],PROJECTION[\"Lambert_Conformal_Conic\"]]";
-"GEOGCS[\"GCS_WGS_1984\",PROJECTION[\"Lambert_Conformal_Conic\"],PRIMEM[\"Greenwich2\",0.0]]";
+- Clean Lexer → Parser → AST architecture
+- Header-only friendly, no external dependencies
+- Cross-platform (Linux, macOS, Windows)
+- High precision number handling (scientific notation support)
+- Path-based navigation (`find("DATUM/SPHEROID")`)
+- In-place modification with serialization
 
+## Build
+
+```bash
+g++ -std=c++17 -O2 -I include src/*.cpp -o wkt_parser
+```
+
+Or with CMake:
+```bash
+mkdir build && cd build
+cmake ..
+make
+```
+
+## Quick Start
+
+```cpp
+#include "wkt_parser.hpp"
+using namespace wkt;
+
+// Parse
+auto doc = WKTDocument::parse(
+    "GEOGCS[\"GCS_WGS_1984\","
+    "DATUM[\"D_WGS_1984\","
+    "SPHEROID[\"WGS_1984\",6378137.0,298.257224]]]"
+);
+
+// Query
+auto datum = doc.getDatumName();           // "D_WGS_1984"
+auto [a, f] = *doc.getSpheroidParams();    // 6378137.0, 298.257224
+
+// Navigate
+WKTNode* spheroid = doc.find("SPHEROID");
+WKTNode* nested = doc.find("DATUM/SPHEROID");
+
+// Modify
+doc.setValue("SPHEROID", "ITRF_2008");
+doc.setNumber("SPHEROID", 0, 6378140.0);
+
+// Serialize
+std::string output = doc.toString();        // compact
+std::string pretty = doc.toString(true);    // formatted
+```
+
+## API
+
+### WKTDocument
+
+```cpp
+static WKTDocument parse(std::string_view input);
+static std::optional<WKTDocument> tryParse(std::string_view input, std::string* error);
+
+WKTNode* find(std::string_view path);
+bool setValue(std::string_view section, std::string_view value);
+bool setNumber(std::string_view section, size_t index, double value);
+bool setNumbers(std::string_view section, const std::vector<double>& values);
+std::string toString(bool pretty = false) const;
+
+// Convenience
+std::optional<std::string> getDatumName() const;
+std::optional<std::string> getSpheroidName() const;
+std::optional<std::pair<double, double>> getSpheroidParams() const;
+```
+
+### WKTNode
+
+```cpp
+const std::string& name() const;
+const std::optional<std::string>& stringValue() const;
+const std::vector<double>& numbers() const;
+
+WKTNode* findChild(std::string_view name);
+WKTNode* findByPath(std::string_view path);
+bool setNumber(size_t index, double value);
+```
+
+## Error Handling
+
+```cpp
+try {
+    auto doc = WKTDocument::parse(wkt);
+} catch (const wkt::LexerError& e) {
+    // e.position(), e.line(), e.column()
+} catch (const wkt::ParseError& e) {
+    // e.token()
+}
+
+// Or safe version:
+std::string error;
+if (auto doc = WKTDocument::tryParse(wkt, &error)) {
+    // use *doc
+} else {
+    std::cerr << error << "\n";
+}
+```
+
+## License
+
+MIT
