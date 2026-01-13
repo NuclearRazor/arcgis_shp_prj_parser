@@ -1,1 +1,0 @@
-/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/wkt_parser.dir/src/main.cpp.o -o wkt_parser  libwkt_parser_lib.a
